@@ -1,29 +1,13 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { 
   ShoppingBag, MapPin, Plus, Trash2, Edit2, Loader2, Plane, 
-  Wallet, Calendar, Clock, LogOut, Search 
+  Wallet, Calendar, Clock, LogOut, Info, AlertCircle 
 } from 'lucide-react';
-
-// Firebase Core & Auth
 import { initializeApp } from 'firebase/app';
-import { 
-  getAuth, 
-  signInWithPopup, 
-  GoogleAuthProvider, 
-  onAuthStateChanged, 
-  signOut 
-} from 'firebase/auth';
-import { 
-  getFirestore, 
-  collection, 
-  onSnapshot, 
-  addDoc, 
-  deleteDoc, 
-  doc, 
-  updateDoc 
-} from 'firebase/firestore';
+import { getAuth, signInWithPopup, GoogleAuthProvider, onAuthStateChanged, signOut } from 'firebase/auth';
+import { getFirestore, collection, onSnapshot, addDoc, deleteDoc, doc, updateDoc, setDoc } from 'firebase/firestore';
 
-// TUS CLAVES OFICIALES
+// CONFIGURACIÓN OFICIAL
 const firebaseConfig = {
   apiKey: "AIzaSyDrU7LqHmNKpQqC0kTgqRMpH_FBJo6RP0k",
   authDomain: "ny-travel-planner.firebaseapp.com",
@@ -37,54 +21,132 @@ const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 const googleProvider = new GoogleAuthProvider();
-
-// ID compartido para el entorno ADN & GAP (Opción B)
 const SHARED_TRIP_ID = "viaje_ny_2026_adn_gap";
 
+// --- Constantes ---
+const CATEGORIAS = ['Ropa', 'Zapatos', 'Accesorios', 'Belleza', 'Tecnología', 'Regalos', 'Vitaminas'];
+const NYC_TAX_RATE = 0.08875;
+const ISD_RATE = 0.05;
+const ISD_EXEMPT_AMOUNT = 5188.26;
+
+// ==========================================
+// COMPONENTE: ITINERARIO
+// ==========================================
+const ItineraryView = () => {
+  const [items, setItems] = useState([]);
+  const [formData, setFormData] = useState({ date: '', time: '', title: '', location: '' });
+
+  useEffect(() => {
+    return onSnapshot(collection(db, 'trips', SHARED_TRIP_ID, 'itinerary'), (snap) => {
+      setItems(snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a,b) => (a.date+a.time).localeCompare(b.date+b.time)));
+    });
+  }, []);
+
+  return (
+    <div className="max-w-4xl mx-auto p-4 space-y-6">
+      <form className="bg-white p-6 rounded-[2rem] border shadow-sm grid grid-cols-1 md:grid-cols-2 gap-4" onSubmit={async (e) => {
+        e.preventDefault();
+        await addDoc(collection(db, 'trips', SHARED_TRIP_ID, 'itinerary'), { ...formData, createdAt: Date.now() });
+        setFormData({ date: '', time: '', title: '', location: '' });
+      }}>
+        <input type="text" placeholder="¿Qué haremos?" className="md:col-span-2 p-3 bg-slate-50 border rounded-xl font-bold outline-none" value={formData.title} onChange={e => setFormData({...formData, title: e.target.value})} required />
+        <input type="date" className="p-3 bg-slate-50 border rounded-xl outline-none" value={formData.date} onChange={e => setFormData({...formData, date: e.target.value})} required />
+        <input type="time" className="p-3 bg-slate-50 border rounded-xl outline-none" value={formData.time} onChange={e => setFormData({...formData, time: e.target.value})} required />
+        <button className="md:col-span-2 bg-emerald-600 text-white py-4 rounded-xl font-black active:scale-95 transition-transform">Añadir al Plan</button>
+      </form>
+      <div className="space-y-3">
+        {items.map(i => (
+          <div key={i.id} className="bg-white p-5 rounded-2xl border flex items-center gap-4 group">
+            <div className="text-emerald-600 font-black border-r pr-4 min-w-[70px]">{i.time}</div>
+            <div className="flex-1 font-bold text-slate-800">{i.title}</div>
+            <button onClick={() => deleteDoc(doc(db, 'trips', SHARED_TRIP_ID, 'itinerary', i.id))} className="text-slate-200 hover:text-red-500"><Trash2 size={18}/></button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+// ==========================================
+// COMPONENTE: COMPRAS
+// ==========================================
+const ShoppingView = () => {
+  const [activeShopper, setActiveShopper] = useState('ADN');
+  const [items, setItems] = useState([]);
+  const [formData, setFormData] = useState({ name: '', price: '', quantity: 1, category: 'Ropa' });
+
+  useEffect(() => {
+    return onSnapshot(collection(db, 'trips', SHARED_TRIP_ID, 'purchases'), (snap) => {
+      setItems(snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a,b) => b.createdAt - a.createdAt));
+    });
+  }, []);
+
+  const currentItems = items.filter(i => (i.owner || 'ADN') === activeShopper);
+  const total = currentItems.reduce((acc, i) => acc + (i.price * i.quantity), 0);
+  
+  // Clases estáticas para Tailwind en producción
+  const theme = activeShopper === 'ADN' 
+    ? { text: 'text-blue-800', border: 'border-blue-600', bg: 'bg-blue-600' } 
+    : { text: 'text-pink-700', border: 'border-pink-500', bg: 'bg-pink-500' };
+
+  return (
+    <div className="max-w-6xl mx-auto p-4">
+      <div className="flex gap-6 mb-8 border-b">
+        {['ADN', 'GAP'].map(s => (
+          <button key={s} onClick={() => setActiveShopper(s)} className={`pb-2 font-black border-b-4 transition-all ${activeShopper === s ? `${theme.border} ${theme.text}` : 'border-transparent text-slate-400'}`}>Compras {s}</button>
+        ))}
+      </div>
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        <form className="bg-white p-6 rounded-[2rem] border h-fit space-y-4 shadow-sm" onSubmit={async (e) => {
+          e.preventDefault();
+          await addDoc(collection(db, 'trips', SHARED_TRIP_ID, 'purchases'), { ...formData, price: parseFloat(formData.price), owner: activeShopper, createdAt: Date.now() });
+          setFormData({ name: '', price: '', quantity: 1, category: 'Ropa' });
+        }}>
+          <input type="text" placeholder="Artículo" className="w-full p-3 bg-slate-50 border rounded-xl outline-none" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} required />
+          <input type="number" placeholder="Precio" className="w-full p-3 bg-slate-50 border rounded-xl outline-none" value={formData.price} onChange={e => setFormData({...formData, price: e.target.value})} required />
+          <button className={`w-full py-4 text-white font-black rounded-xl ${theme.bg}`}>Añadir</button>
+        </form>
+        <div className="lg:col-span-2 space-y-2">
+          <div className="bg-slate-800 text-white p-6 rounded-2xl mb-4">
+            <p className="text-xs font-bold text-slate-400 uppercase">Subtotal {activeShopper}</p>
+            <p className="text-3xl font-black">${total.toFixed(2)}</p>
+          </div>
+          {currentItems.map(i => (
+            <div key={i.id} className="bg-white p-4 rounded-xl border flex justify-between items-center group">
+              <div className="font-bold text-slate-700">{i.name} <span className="text-[10px] text-slate-400 ml-2 uppercase">{i.category}</span></div>
+              <div className="flex items-center gap-4">
+                <span className="font-black">${(i.price * i.quantity).toFixed(2)}</span>
+                <button onClick={() => deleteDoc(doc(db, 'trips', SHARED_TRIP_ID, 'purchases', i.id))} className="text-slate-200 hover:text-red-500"><Trash2 size={16}/></button>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ==========================================
+// APP PRINCIPAL
+// ==========================================
 export default function App() {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('itinerary');
 
   useEffect(() => {
-    return onAuthStateChanged(auth, (u) => {
-      setUser(u);
-      setLoading(false);
-    });
+    return onAuthStateChanged(auth, (u) => { setUser(u); setLoading(false); });
   }, []);
 
-  const loginWithGoogle = async () => {
-    try {
-      await signInWithPopup(auth, googleProvider);
-    } catch (error) {
-      console.error("Error en login:", error);
-    }
-  };
+  if (loading) return <div className="h-screen flex items-center justify-center font-black animate-pulse">Sincronizando...</div>;
 
-  if (loading) return (
-    <div className="h-screen bg-slate-50 flex flex-col items-center justify-center">
-      <Loader2 className="animate-spin text-indigo-600 mb-4" size={40} />
-      <p className="font-black text-slate-400 uppercase tracking-widest text-xs">Iniciando Sistemas...</p>
-    </div>
-  );
-
-  // PANTALLA DE ACCESO (PRODUCCIÓN)
   if (!user) {
     return (
-      <div className="min-h-screen bg-slate-950 flex items-center justify-center p-6">
-        <div className="bg-white p-10 rounded-[3rem] shadow-2xl w-full max-w-md text-center space-y-8">
-          <div className="relative inline-block">
-            <div className="absolute -inset-1 bg-gradient-to-r from-indigo-500 to-purple-600 rounded-full blur opacity-25"></div>
-            <Plane className="relative text-indigo-600" size={60} />
-          </div>
-          <div>
-            <h1 className="text-3xl font-black text-slate-900 tracking-tighter uppercase">NY Travel Planner</h1>
-            <p className="text-slate-400 font-bold text-sm uppercase tracking-widest mt-2">Acceso Exclusivo ADN & GAP</p>
-          </div>
-          <button 
-            onClick={loginWithGoogle}
-            className="w-full flex items-center justify-center gap-3 py-4 bg-white border-2 border-slate-100 rounded-2xl font-black text-slate-700 hover:bg-slate-50 transition-all shadow-sm active:scale-95"
-          >
+      <div className="min-h-screen bg-slate-950 flex items-center justify-center p-6 text-center">
+        <div className="bg-white p-12 rounded-[3rem] shadow-2xl max-w-sm w-full space-y-8">
+          <Plane className="mx-auto text-indigo-600" size={60} />
+          <h1 className="text-3xl font-black tracking-tighter uppercase">NY Planner</h1>
+          <button onClick={() => signInWithPopup(auth, googleProvider)} className="w-full flex items-center justify-center gap-3 py-4 border-2 rounded-2xl font-black hover:bg-slate-50 transition-all">
             <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" className="w-5 h-5" alt="Google" />
             Entrar con Google
           </button>
@@ -94,51 +156,24 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 font-sans">
-      {/* Header Dinámico */}
-      <header className={`pt-12 pb-6 text-white shadow-2xl transition-colors duration-500 ${activeTab === 'shopping' ? 'bg-blue-900' : 'bg-emerald-900'}`}>
+    <div className="min-h-screen bg-slate-50">
+      <header className={`pt-12 pb-6 text-white shadow-xl transition-colors duration-500 ${activeTab === 'shopping' ? 'bg-blue-900' : 'bg-emerald-900'}`}>
         <div className="max-w-6xl mx-auto px-6">
           <div className="flex justify-between items-center mb-8">
+            <h1 className="text-2xl font-black tracking-tighter">NY TRIP 🩵💜</h1>
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-white/20 rounded-full flex items-center justify-center font-black">NY</div>
-              <h1 className="text-xl md:text-2xl font-black tracking-tighter italic">ADN & GAP 🩵💜</h1>
-            </div>
-            <div className="flex items-center gap-4">
-              <img src={user.photoURL} alt="User" className="w-8 h-8 rounded-full border-2 border-white/20" />
-              <button onClick={() => signOut(auth)} className="p-2 bg-white/10 rounded-xl hover:bg-rose-500 transition-colors"><LogOut size={18}/></button>
+              <img src={user.photoURL} className="w-8 h-8 rounded-full border-2 border-white/20" alt="avatar" />
+              <button onClick={() => signOut(auth)} className="p-2 bg-white/10 rounded-lg"><LogOut size={16}/></button>
             </div>
           </div>
-          
           <nav className="flex gap-2">
-            <button 
-              onClick={() => setActiveTab('itinerary')}
-              className={`px-8 py-4 rounded-t-3xl font-black text-xs uppercase tracking-widest transition-all ${activeTab === 'itinerary' ? 'bg-slate-50 text-slate-900' : 'text-white/40 hover:bg-white/10'}`}
-            >
-              📍 Itinerario
-            </button>
-            <button 
-              onClick={() => setActiveTab('shopping')}
-              className={`px-8 py-4 rounded-t-3xl font-black text-xs uppercase tracking-widest transition-all ${activeTab === 'shopping' ? 'bg-slate-50 text-slate-900' : 'text-white/40 hover:bg-white/10'}`}
-            >
-              🛍️ Compras
-            </button>
+            <button onClick={() => setActiveTab('itinerary')} className={`px-6 py-3 rounded-t-2xl font-black text-xs uppercase tracking-widest ${activeTab === 'itinerary' ? 'bg-slate-50 text-slate-900' : 'text-white/40'}`}>📍 Itinerario</button>
+            <button onClick={() => setActiveTab('shopping')} className={`px-6 py-3 rounded-t-2xl font-black text-xs uppercase tracking-widest ${activeTab === 'shopping' ? 'bg-slate-50 text-slate-900' : 'text-white/40'}`}>🛍️ Compras</button>
           </nav>
         </div>
       </header>
-
-      {/* Área de Trabajo Compartida */}
-      <main className="py-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
-        {activeTab === 'itinerary' ? (
-          <div className="max-w-4xl mx-auto px-4">
-            {/* Aquí conectaremos el componente de Itinerario con SHARED_TRIP_ID */}
-            <p className="text-center text-slate-400 font-bold uppercase tracking-widest py-20 border-2 border-dashed rounded-[3rem]">Módulo de Itinerario Compartido Activo</p>
-          </div>
-        ) : (
-          <div className="max-w-6xl mx-auto px-4">
-            {/* Aquí conectaremos el componente de Compras con SHARED_TRIP_ID */}
-            <p className="text-center text-slate-400 font-bold uppercase tracking-widest py-20 border-2 border-dashed rounded-[3rem]">Módulo de Compras ADN & GAP Activo</p>
-          </div>
-        )}
+      <main className="py-8">
+        {activeTab === 'itinerary' ? <ItineraryView /> : <ShoppingView />}
       </main>
     </div>
   );
