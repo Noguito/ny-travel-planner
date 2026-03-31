@@ -1,28 +1,13 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
-  ShoppingBag, 
-  DollarSign, 
-  MapPin, 
-  Tag, 
-  Plus, 
-  Trash2, 
-  Edit2, 
-  Loader2,
-  Package,
-  MessageSquare,
-  Info,
-  AlertCircle,
-  Calculator,
-  Plane,
-  Wallet,
-  Calendar,
-  Clock,
-  AlignLeft,
-  LogOut
+  ShoppingBag, DollarSign, MapPin, Tag, Plus, Trash2, Edit2, Loader2,
+  Package, MessageSquare, Info, AlertCircle, Calculator, Plane, Wallet,
+  Calendar, Clock, AlignLeft, LogOut, CheckCircle, XCircle, ListTodo, 
+  FileText, Building, PlaneTakeoff, ShieldAlert
 } from 'lucide-react';
 import { initializeApp } from 'firebase/app';
 import { getAuth, signInWithPopup, GoogleAuthProvider, onAuthStateChanged, signOut } from 'firebase/auth';
-import { getFirestore, collection, onSnapshot, addDoc, deleteDoc, doc, updateDoc, setDoc } from 'firebase/firestore';
+import { getFirestore, collection, onSnapshot, addDoc, deleteDoc, doc, updateDoc, setDoc, enableIndexedDbPersistence } from 'firebase/firestore';
 
 // --- Configuración Real de Firebase ---
 const firebaseConfig = {
@@ -37,6 +22,16 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
+
+// ACTIVAR MODO OFFLINE (Para funcionar sin internet)
+try {
+  enableIndexedDbPersistence(db).catch((err) => {
+    console.warn("Modo offline no disponible:", err.code);
+  });
+} catch (e) {
+  console.warn("Error inicializando persistencia:", e);
+}
+
 const googleProvider = new GoogleAuthProvider();
 
 // ID compartido para el entorno ADN & GAP
@@ -47,8 +42,7 @@ const correosPermitidos = [
   "gpogocruz@gmail.com" 
 ];
 
-const correoAutorizado = (email = "") =>
-  correosPermitidos.map(c => c.toLowerCase()).includes(email.toLowerCase());
+const correoAutorizado = (email = "") => correosPermitidos.map(c => c.toLowerCase()).includes(email.toLowerCase());
 
 // --- Constantes de Compras NY ---
 const CATEGORIAS = ['Ropa', 'Zapatos', 'Accesorios', 'Belleza', 'Tecnología', 'Regalos', 'Vitaminas'];
@@ -66,6 +60,8 @@ const CATEGORY_DESCRIPTIONS = {
   'Vitaminas': 'Suplementos y medicinas. (Generalmente libres de tax NY)'
 };
 
+const INFO_CATEGORIES = ['Hospedaje', 'Vuelos', 'Seguro', 'General'];
+
 // ==========================================
 // VISTA 1: DASHBOARD DE COMPRAS NY
 // ==========================================
@@ -77,11 +73,8 @@ const ShoppingView = ({ user }) => {
   const [previousSpending, setPreviousSpending] = useState({ ADN: 0, GAP: 0 });
   const [editingId, setEditingId] = useState(null);
   
-  const [formData, setFormData] = useState({
-    name: '', price: '', store: '', quantity: 1, category: 'Ropa', comments: ''
-  });
+  const [formData, setFormData] = useState({ name: '', price: '', store: '', quantity: 1, category: 'Ropa', comments: '' });
 
-  // Limpiar formulario al cambiar de subpestaña
   useEffect(() => {
     setEditingId(null);
     setFormData({ name: '', price: '', store: '', quantity: 1, category: 'Ropa', comments: '' });
@@ -95,22 +88,13 @@ const ShoppingView = ({ user }) => {
       fetchedItems.sort((a, b) => b.createdAt - a.createdAt);
       setItems(fetchedItems);
       setLoading(false);
-    }, (error) => {
-      console.error("Error al obtener los datos de compras:", error);
-      setLoading(false);
-    });
+    }, (error) => { console.error(error); setLoading(false); });
     return () => unsubscribe();
   }, [user]);
 
-  // Filtrar los ítems según quién está seleccionado
-  const currentItems = useMemo(() => {
-    return items.filter(item => (item.owner || 'ADN') === activeShopper);
-  }, [items, activeShopper]);
+  const currentItems = useMemo(() => items.filter(item => (item.owner || 'ADN') === activeShopper), [items, activeShopper]);
 
-  const handleInputChange = (e) => {
-    const { name, value } = e.target;
-    setFormData(prev => ({ ...prev, [name]: value }));
-  };
+  const handleInputChange = (e) => { const { name, value } = e.target; setFormData(prev => ({ ...prev, [name]: value })); };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -118,108 +102,58 @@ const ShoppingView = ({ user }) => {
     setIsSubmitting(true);
     try {
       const itemData = {
-        name: formData.name,
-        price: parseFloat(formData.price) || 0,
-        store: formData.store || 'No especificada',
-        quantity: parseInt(formData.quantity) || 1,
-        category: formData.category,
-        comments: formData.comments,
-        owner: activeShopper,
-        updatedAt: Date.now()
+        name: formData.name, price: parseFloat(formData.price) || 0, store: formData.store || 'No especificada',
+        quantity: parseInt(formData.quantity) || 1, category: formData.category, comments: formData.comments,
+        owner: activeShopper, updatedAt: Date.now()
       };
       const colRef = collection(db, 'trips', SHARED_TRIP_ID, 'ny_purchases');
-      if (editingId) {
-        await updateDoc(doc(colRef, editingId), itemData);
-      } else {
-        await addDoc(colRef, { ...itemData, createdAt: Date.now() });
-      }
+      if (editingId) await updateDoc(doc(colRef, editingId), itemData);
+      else await addDoc(colRef, { ...itemData, createdAt: Date.now() });
       setFormData({ name: '', price: '', store: '', quantity: 1, category: 'Ropa', comments: '' });
       setEditingId(null);
-    } catch (error) {
-      console.error("Error guardando el artículo:", error);
-    } finally {
-      setIsSubmitting(false);
-    }
+    } catch (error) { console.error(error); } finally { setIsSubmitting(false); }
   };
 
   const handleEdit = (item) => {
     setEditingId(item.id);
-    setFormData({
-      name: item.name, price: item.price.toString(), store: item.store,
-      quantity: item.quantity, category: item.category, comments: item.comments || ''
-    });
+    setFormData({ name: item.name, price: item.price.toString(), store: item.store, quantity: item.quantity, category: item.category, comments: item.comments || '' });
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  const handleDelete = async (id) => {
-    if (!user) return;
-    try {
-      await deleteDoc(doc(db, 'trips', SHARED_TRIP_ID, 'ny_purchases', id));
-    } catch (error) {
-      console.error("Error eliminando el artículo:", error);
-    }
-  };
+  const handleDelete = async (id) => { if (user) await deleteDoc(doc(db, 'trips', SHARED_TRIP_ID, 'ny_purchases', id)); };
 
   const stats = useMemo(() => {
-    let totalCost = 0, totalNYCTax = 0, totalItems = 0;
-    const uniqueStores = new Set();
-
+    let totalCost = 0, totalNYCTax = 0;
     currentItems.forEach(item => {
       const itemBaseTotal = item.price * item.quantity;
       totalCost += itemBaseTotal;
-      totalItems += item.quantity;
-      if (item.store && item.store !== 'No especificada') uniqueStores.add(item.store.toLowerCase());
-
       let itemTax = 0;
-      if (item.category === 'Ropa' || item.category === 'Zapatos') {
-        if (item.price >= 110) itemTax = itemBaseTotal * NYC_TAX_RATE;
-      } else if (item.category !== 'Vitaminas') {
-        itemTax = itemBaseTotal * NYC_TAX_RATE;
-      }
+      if (item.category === 'Ropa' || item.category === 'Zapatos') { if (item.price >= 110) itemTax = itemBaseTotal * NYC_TAX_RATE; } 
+      else if (item.category !== 'Vitaminas') { itemTax = itemBaseTotal * NYC_TAX_RATE; }
       totalNYCTax += itemTax;
     });
 
     const subtotalUSA = totalCost + totalNYCTax;
     const currentPrevSpending = previousSpending[activeShopper] || 0;
     const totalAccumulated = currentPrevSpending + subtotalUSA;
-    let isdTax = 0;
-    if (totalAccumulated > ISD_EXEMPT_AMOUNT) {
-      const taxableAmount = Math.min(subtotalUSA, totalAccumulated - ISD_EXEMPT_AMOUNT);
-      isdTax = taxableAmount > 0 ? taxableAmount * ISD_RATE : 0;
-    }
+    let isdTax = totalAccumulated > ISD_EXEMPT_AMOUNT ? Math.min(subtotalUSA, totalAccumulated - ISD_EXEMPT_AMOUNT) * ISD_RATE : 0;
 
-    return { totalCost, totalNYCTax, subtotalUSA, isdTax, granTotal: subtotalUSA + isdTax, totalItems, storesCount: uniqueStores.size };
+    return { totalCost, totalNYCTax, subtotalUSA, isdTax, granTotal: subtotalUSA + isdTax };
   }, [currentItems, previousSpending, activeShopper]);
 
   const theme = activeShopper === 'ADN' ? {
-    tabActive: 'border-blue-600 text-blue-800',
-    btnBg: 'bg-blue-600 hover:bg-blue-700',
-    iconText: 'text-blue-600',
-    cardBg: 'bg-blue-50 border-blue-300',
-    cardTitle: 'text-blue-800',
-    cardValue: 'text-blue-900',
-    ring: 'focus:ring-blue-500',
-    badge: 'bg-blue-100 text-blue-800'
+    tabActive: 'border-blue-600 text-blue-800', btnBg: 'bg-blue-600 hover:bg-blue-700', iconText: 'text-blue-600',
+    cardBg: 'bg-blue-50 border-blue-300', cardTitle: 'text-blue-800', cardValue: 'text-blue-900', ring: 'focus:ring-blue-500', badge: 'bg-blue-100 text-blue-800'
   } : {
-    tabActive: 'border-pink-500 text-pink-700',
-    btnBg: 'bg-pink-500 hover:bg-pink-600',
-    iconText: 'text-pink-500',
-    cardBg: 'bg-pink-50 border-pink-300',
-    cardTitle: 'text-pink-800',
-    cardValue: 'text-pink-900',
-    ring: 'focus:ring-pink-500',
-    badge: 'bg-pink-100 text-pink-800'
+    tabActive: 'border-pink-500 text-pink-700', btnBg: 'bg-pink-500 hover:bg-pink-600', iconText: 'text-pink-500',
+    cardBg: 'bg-pink-50 border-pink-300', cardTitle: 'text-pink-800', cardValue: 'text-pink-900', ring: 'focus:ring-pink-500', badge: 'bg-pink-100 text-pink-800'
   };
 
   return (
     <div className="max-w-6xl mx-auto">
       <div className="flex space-x-6 mb-8 border-b border-slate-200">
-        <button onClick={() => setActiveShopper('ADN')} className={`pb-3 px-2 font-black text-lg border-b-4 transition-colors ${activeShopper === 'ADN' ? theme.tabActive : 'border-transparent text-slate-400 hover:text-slate-600'}`}>
-          Compras ADN
-        </button>
-        <button onClick={() => setActiveShopper('GAP')} className={`pb-3 px-2 font-black text-lg border-b-4 transition-colors ${activeShopper === 'GAP' ? theme.tabActive : 'border-transparent text-slate-400 hover:text-slate-600'}`}>
-          Compras GAP
-        </button>
+        <button onClick={() => setActiveShopper('ADN')} className={`pb-3 px-2 font-black text-lg border-b-4 transition-colors ${activeShopper === 'ADN' ? theme.tabActive : 'border-transparent text-slate-400 hover:text-slate-600'}`}>Compras ADN</button>
+        <button onClick={() => setActiveShopper('GAP')} className={`pb-3 px-2 font-black text-lg border-b-4 transition-colors ${activeShopper === 'GAP' ? theme.tabActive : 'border-transparent text-slate-400 hover:text-slate-600'}`}>Compras GAP</button>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
@@ -272,11 +206,9 @@ const ShoppingView = ({ user }) => {
           <div className="relative max-w-xs mt-2">
             <DollarSign className="absolute left-3 top-2.5 w-4 h-4 text-slate-400" />
             <input 
-              type="number" 
-              value={previousSpending[activeShopper] || ''} 
+              type="number" value={previousSpending[activeShopper] || ''} 
               onChange={(e) => setPreviousSpending(prev => ({ ...prev, [activeShopper]: parseFloat(e.target.value) || 0 }))}
-              placeholder="Ej. 1500" min="0" 
-              className={`w-full pl-9 p-2 border border-slate-300 rounded-lg focus:ring-2 ${theme.ring} outline-none transition-all`}
+              placeholder="Ej. 1500" min="0" className={`w-full pl-9 p-2 border border-slate-300 rounded-lg focus:ring-2 ${theme.ring} outline-none transition-all`}
             />
           </div>
         </div>
@@ -304,12 +236,6 @@ const ShoppingView = ({ user }) => {
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">Precio Unit. ($) *</label>
                   <input type="number" name="price" value={formData.price} onChange={handleInputChange} placeholder="0.00" min="0" step="0.01" className={`w-full p-2.5 border border-slate-300 rounded-lg focus:ring-2 ${theme.ring} outline-none`} required />
-                  {formData.price && formData.category && (
-                    <p className="text-[10px] mt-1 font-medium">
-                      {((formData.category === 'Ropa' || formData.category === 'Zapatos') && parseFloat(formData.price) < 110) || formData.category === 'Vitaminas' 
-                        ? <span className="text-emerald-600">✓ Libre de Tax</span> : <span className="text-orange-600">+8.875% Tax</span>}
-                    </p>
-                  )}
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">Cantidad</label>
@@ -317,31 +243,21 @@ const ShoppingView = ({ user }) => {
                 </div>
               </div>
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Tienda (Opcional)</label>
-                <div className="relative">
-                  <MapPin className="absolute left-3 top-3 w-4 h-4 text-slate-400" />
-                  <input type="text" name="store" value={formData.store} onChange={handleInputChange} placeholder="Ej. Macy's" className={`w-full p-2.5 pl-9 border border-slate-300 rounded-lg focus:ring-2 ${theme.ring} outline-none`} />
-                </div>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1 flex items-center gap-1">
-                  Categoría
-                  <div className="group relative flex items-center cursor-help">
-                    <Info className="w-4 h-4 text-slate-400 hover:text-slate-600 transition-colors" />
-                    <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-48 p-2 bg-slate-800 text-white text-[10px] rounded-lg opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity z-10 text-center">
-                      Clasifica bien tus compras para calcular los impuestos de NY con exactitud.
-                    </div>
-                  </div>
-                </label>
+                <label className="block text-sm font-medium text-slate-700 mb-1 flex items-center gap-1">Categoría</label>
                 <div className="relative">
                   <Tag className="absolute left-3 top-3 w-4 h-4 text-slate-400" />
                   <select name="category" value={formData.category} onChange={handleInputChange} className={`w-full p-2.5 pl-9 border border-slate-300 rounded-lg focus:ring-2 ${theme.ring} outline-none appearance-none bg-white`}>
                     {CATEGORIAS.map(cat => <option key={cat} value={cat}>{cat}</option>)}
                   </select>
                 </div>
-                <p className="text-[10px] text-slate-500 mt-1.5 font-medium flex items-start gap-1">
-                  <span className="text-slate-400 mt-0.5">↳</span> {CATEGORY_DESCRIPTIONS[formData.category]}
-                </p>
+                <p className="text-[10px] text-slate-500 mt-1.5 font-medium flex items-start gap-1"><span className="text-slate-400 mt-0.5">↳</span> {CATEGORY_DESCRIPTIONS[formData.category]}</p>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Tienda (Opcional)</label>
+                <div className="relative">
+                  <MapPin className="absolute left-3 top-3 w-4 h-4 text-slate-400" />
+                  <input type="text" name="store" value={formData.store} onChange={handleInputChange} placeholder="Ej. Macy's" className={`w-full p-2.5 pl-9 border border-slate-300 rounded-lg focus:ring-2 ${theme.ring} outline-none`} />
+                </div>
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">Comentarios</label>
@@ -352,9 +268,7 @@ const ShoppingView = ({ user }) => {
                   {isSubmitting ? <Loader2 className="w-5 h-5 animate-spin" /> : (editingId ? 'Guardar' : 'Añadir')}
                 </button>
                 {editingId && (
-                  <button type="button" onClick={() => {setEditingId(null); setFormData({name: '', price: '', store: '', quantity: 1, category: 'Ropa', comments: ''});}} className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium rounded-lg">
-                    Cancelar
-                  </button>
+                  <button type="button" onClick={() => {setEditingId(null); setFormData({name: '', price: '', store: '', quantity: 1, category: 'Ropa', comments: ''});}} className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium rounded-lg">Cancelar</button>
                 )}
               </div>
             </form>
@@ -431,7 +345,6 @@ const BudgetView = ({ user }) => {
   useEffect(() => {
     if (!user) return;
     const docPath = doc(db, 'trips', SHARED_TRIP_ID, 'travel_budget', 'main');
-    
     const unsubscribe = onSnapshot(docPath, (docSnap) => {
         if (docSnap.exists() && !isEditing.current) {
             const data = docSnap.data();
@@ -439,21 +352,14 @@ const BudgetView = ({ user }) => {
             if (data.expenses) setExpenses(data.expenses);
         }
         setLoading(false);
-    }, (err) => {
-        console.error("Error de Sincronización:", err);
-        setSyncStatus('error');
-        setLoading(false);
-    });
+    }, (err) => { console.error(err); setSyncStatus('error'); setLoading(false); });
     return () => unsubscribe();
   }, [user]);
 
   useEffect(() => {
     if (!user) return;
     const colRef = collection(db, 'trips', SHARED_TRIP_ID, 'ny_purchases');
-    const unsubscribe = onSnapshot(colRef, (snapshot) => {
-        const fetched = snapshot.docs.map(doc => doc.data());
-        setShoppingItems(fetched);
-    });
+    const unsubscribe = onSnapshot(colRef, (snapshot) => { setShoppingItems(snapshot.docs.map(doc => doc.data())); });
     return () => unsubscribe();
   }, [user]);
 
@@ -461,90 +367,43 @@ const BudgetView = ({ user }) => {
     if (!user) return;
     setSyncStatus('saving');
     try {
-        const docPath = doc(db, 'trips', SHARED_TRIP_ID, 'travel_budget', 'main');
-        await setDoc(docPath, {
-            savings: currentSavings,
-            expenses: currentExpenses,
-            lastUpdated: Date.now()
-        }, { merge: true });
+        await setDoc(doc(db, 'trips', SHARED_TRIP_ID, 'travel_budget', 'main'), { savings: currentSavings, expenses: currentExpenses, lastUpdated: Date.now() }, { merge: true });
         setSyncStatus('saved');
-    } catch (e) {
-        setSyncStatus('error');
-    }
+    } catch (e) { setSyncStatus('error'); }
   };
 
   const calculations = useMemo(() => {
-      const sAdn = Number(savings.adn) || 0;
-      const sGap = Number(savings.gap) || 0;
+      const sAdn = Number(savings.adn) || 0, sGap = Number(savings.gap) || 0;
       const totalSavings = sAdn + sGap;
       const totalExpenses = expenses.reduce((acc, curr) => acc + (Number(curr.amount) || 0), 0);
-      
       const pctADN = totalSavings > 0 ? (sAdn / totalSavings) : 0;
       const pctGAP = totalSavings > 0 ? (sGap / totalSavings) : 0;
-      
-      const shareADN = totalExpenses * pctADN;
-      const shareGAP = totalExpenses * pctGAP;
-      
-      const personalADN = Math.max(0, sAdn - shareADN);
-      const personalGAP = Math.max(0, sGap - shareGAP);
-
-      return {
-          totalSavings, totalExpenses,
-          pctADN: (pctADN * 100).toFixed(1),
-          pctGAP: (pctGAP * 100).toFixed(1),
-          shareADN, shareGAP,
-          personalADN, personalGAP,
-          leftoverPctADN: sAdn > 0 ? (personalADN / sAdn) * 100 : 0,
-          leftoverPctGAP: sGap > 0 ? (personalGAP / sGap) * 100 : 0
-      };
+      const shareADN = totalExpenses * pctADN, shareGAP = totalExpenses * pctGAP;
+      const personalADN = Math.max(0, sAdn - shareADN), personalGAP = Math.max(0, sGap - shareGAP);
+      return { totalSavings, totalExpenses, pctADN: (pctADN * 100).toFixed(1), pctGAP: (pctGAP * 100).toFixed(1), shareADN, shareGAP, personalADN, personalGAP, leftoverPctADN: sAdn > 0 ? (personalADN / sAdn) * 100 : 0, leftoverPctGAP: sGap > 0 ? (personalGAP / sGap) * 100 : 0 };
   }, [savings, expenses]);
 
   const shoppingTotals = useMemo(() => {
-      let adn = 0;
-      let gap = 0;
+      let adn = 0, gap = 0;
       shoppingItems.forEach(item => {
-          const owner = item.owner || 'ADN';
           const base = (item.price || 0) * (item.quantity || 1);
           let tax = 0;
-          if (item.category === 'Ropa' || item.category === 'Zapatos') {
-              if (item.price >= 110) tax = base * NYC_TAX_RATE;
-          } else if (item.category !== 'Vitaminas') {
-              tax = base * NYC_TAX_RATE;
-          }
-          if (owner === 'ADN') adn += (base + tax);
-          if (owner === 'GAP') gap += (base + tax);
+          if (item.category === 'Ropa' || item.category === 'Zapatos') { if (item.price >= 110) tax = base * NYC_TAX_RATE; } 
+          else if (item.category !== 'Vitaminas') { tax = base * NYC_TAX_RATE; }
+          if ((item.owner || 'ADN') === 'ADN') adn += (base + tax); else gap += (base + tax);
       });
       return { adn, gap };
   }, [shoppingItems]);
 
-  const handleLocalSavings = (person, val) => {
-      isEditing.current = true;
-      setSavings(prev => ({ ...prev, [person]: val }));
-  };
-
-  const commitSavings = () => {
-      isEditing.current = false;
-      pushToCloud(savings, expenses);
-  };
-
+  const handleLocalSavings = (person, val) => { isEditing.current = true; setSavings(prev => ({ ...prev, [person]: val })); };
+  const commitSavings = () => { isEditing.current = false; pushToCloud(savings, expenses); };
   const handleAddExpense = () => {
       if (newItem.name && newItem.amount) {
-          const updatedExpenses = [...expenses, {
-              id: Date.now().toString(),
-              name: newItem.name,
-              amount: parseFloat(newItem.amount) || 0
-          }];
-          setExpenses(updatedExpenses);
-          setNewItem({ name: '', amount: '' });
-          pushToCloud(savings, updatedExpenses);
+          const updatedExpenses = [...expenses, { id: Date.now().toString(), name: newItem.name, amount: parseFloat(newItem.amount) || 0 }];
+          setExpenses(updatedExpenses); setNewItem({ name: '', amount: '' }); pushToCloud(savings, updatedExpenses);
       }
   };
-
-  const handleDeleteExpense = (id) => {
-      const updated = expenses.filter(e => e.id !== id);
-      setExpenses(updated);
-      pushToCloud(savings, updated);
-  };
+  const handleDeleteExpense = (id) => { const updated = expenses.filter(e => e.id !== id); setExpenses(updated); pushToCloud(savings, updated); };
 
   if (loading) return <div className="p-12 flex justify-center"><Loader2 className="w-8 h-8 animate-spin text-indigo-500" /></div>;
 
@@ -552,16 +411,12 @@ const BudgetView = ({ user }) => {
     <div className="max-w-6xl mx-auto">
         <header className="flex flex-col md:flex-row md:items-center justify-between mb-10 gap-6">
             <div className="flex items-center gap-4">
-                <div className="bg-indigo-600 p-4 rounded-3xl text-white shadow-xl">
-                    <Plane size={32} />
-                </div>
+                <div className="bg-indigo-600 p-4 rounded-3xl text-white shadow-xl"><Plane size={32} /></div>
                 <div>
                     <h1 className="text-3xl font-black text-slate-800 tracking-tight">Presupuesto USA</h1>
                     <div className="flex items-center gap-2 mt-1">
                         <div className={`w-2 h-2 rounded-full ${syncStatus === 'saved' ? 'bg-emerald-500' : syncStatus === 'saving' ? 'bg-amber-500 animate-pulse' : 'bg-rose-500'}`}></div>
-                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
-                            {syncStatus === 'saved' ? 'Sincronizado' : syncStatus === 'saving' ? 'Guardando...' : 'Sin conexión'}
-                        </p>
+                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{syncStatus === 'saved' ? 'Sincronizado' : syncStatus === 'saving' ? 'Guardando...' : 'Sin conexión'}</p>
                     </div>
                 </div>
             </div>
@@ -580,9 +435,7 @@ const BudgetView = ({ user }) => {
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
             <div className="lg:col-span-4 space-y-6">
                 <section className="bg-white p-7 rounded-[2.5rem] shadow-sm border border-slate-100 text-slate-800">
-                    <h2 className="text-lg font-bold mb-6 flex items-center gap-2 px-2">
-                        <Wallet className="text-indigo-500" size={22} /> Aportes Actuales
-                    </h2>
+                    <h2 className="text-lg font-bold mb-6 flex items-center gap-2 px-2"><Wallet className="text-indigo-500" size={22} /> Aportes Actuales</h2>
                     <div className="space-y-4">
                         {['adn', 'gap'].map(p => (
                             <div key={p} className={`p-5 rounded-3xl border-2 ${p === 'adn' ? 'bg-blue-50/30 border-blue-100 focus-within:border-blue-300' : 'bg-pink-50/30 border-pink-100 focus-within:border-pink-300'}`}>
@@ -592,16 +445,12 @@ const BudgetView = ({ user }) => {
                                 </div>
                                 <div className="flex items-center gap-1">
                                     <span className="text-2xl font-black text-slate-300">$</span>
-                                    <input 
-                                        type="number" value={savings[p]} onChange={(e) => handleLocalSavings(p, e.target.value)} onBlur={commitSavings}
-                                        className="w-full bg-transparent border-none outline-none text-2xl font-black text-slate-800"
-                                    />
+                                    <input type="number" value={savings[p]} onChange={(e) => handleLocalSavings(p, e.target.value)} onBlur={commitSavings} className="w-full bg-transparent border-none outline-none text-2xl font-black text-slate-800" />
                                 </div>
                             </div>
                         ))}
                     </div>
                 </section>
-
                 <div className="space-y-4">
                     <div className="bg-white p-7 rounded-[2.5rem] border border-slate-100 shadow-sm">
                         <p className="text-[10px] font-black text-blue-500 uppercase tracking-widest mb-2">Libre para ADN</p>
@@ -618,12 +467,9 @@ const BudgetView = ({ user }) => {
                         </div>
                     </div>
                 </div>
-
                 <section className="bg-white p-7 rounded-[2.5rem] shadow-sm border border-slate-100 text-slate-800 mt-6">
-                    <h2 className="text-lg font-bold mb-4 flex items-center gap-2 px-2">
-                        <ShoppingBag className="text-indigo-500" size={22} /> Proyección de Compras
-                    </h2>
-                    <p className="text-xs text-slate-400 px-2 mb-4 leading-relaxed">Suma de las listas individuales. Te ayuda a saber si el "Fondo Libre" es suficiente.</p>
+                    <h2 className="text-lg font-bold mb-4 flex items-center gap-2 px-2"><ShoppingBag className="text-indigo-500" size={22} /> Proyección de Compras</h2>
+                    <p className="text-xs text-slate-400 px-2 mb-4 leading-relaxed">Suma de las listas individuales.</p>
                     <div className="space-y-3">
                         <div className="flex justify-between items-center p-4 bg-blue-50/50 rounded-3xl border border-blue-100">
                             <span className="text-xs font-black text-blue-600 uppercase tracking-widest">Gasto ADN</span>
@@ -641,13 +487,10 @@ const BudgetView = ({ user }) => {
                 <section className="bg-white p-8 rounded-[3rem] shadow-sm border border-slate-100">
                     <div className="flex justify-between items-center mb-10">
                         <div>
-                            <h2 className="text-2xl font-black text-slate-800 flex items-center gap-3">
-                                <ShoppingBag className="text-indigo-600" size={28} /> Conceptos de Gasto
-                            </h2>
+                            <h2 className="text-2xl font-black text-slate-800 flex items-center gap-3"><ShoppingBag className="text-indigo-600" size={28} /> Conceptos de Gasto</h2>
                             <p className="text-sm text-slate-400 font-medium">Gastos compartidos para el viaje</p>
                         </div>
                     </div>
-
                     <div className="space-y-4 max-h-[450px] overflow-y-auto pr-3">
                         {expenses.length === 0 ? (
                             <div className="text-center py-20 border-2 border-dashed border-slate-100 rounded-[2.5rem]">
@@ -656,9 +499,7 @@ const BudgetView = ({ user }) => {
                         ) : expenses.map((exp) => (
                             <div key={exp.id} className="flex items-center justify-between p-6 rounded-[2rem] border border-slate-50 hover:bg-slate-50/80 transition-all group">
                                 <div className="flex items-center gap-5">
-                                    <div className="bg-white p-3.5 rounded-2xl shadow-sm text-indigo-500 group-hover:scale-110 transition-transform">
-                                        <Tag size={20} />
-                                    </div>
+                                    <div className="bg-white p-3.5 rounded-2xl shadow-sm text-indigo-500 group-hover:scale-110 transition-transform"><Tag size={20} /></div>
                                     <div>
                                         <p className="font-extrabold text-slate-700">{exp.name}</p>
                                         <p className="text-[10px] font-black text-slate-300 uppercase tracking-widest">Pago Proporcional</p>
@@ -666,35 +507,23 @@ const BudgetView = ({ user }) => {
                                 </div>
                                 <div className="flex items-center gap-8">
                                     <span className="text-xl font-black text-slate-800">${exp.amount.toLocaleString()}</span>
-                                    <button onClick={() => handleDeleteExpense(exp.id)} className="p-2 text-slate-200 hover:text-rose-500 transition-colors opacity-0 group-hover:opacity-100">
-                                        <Trash2 size={20} />
-                                    </button>
+                                    <button onClick={() => handleDeleteExpense(exp.id)} className="p-2 text-slate-200 hover:text-rose-500 transition-colors opacity-0 group-hover:opacity-100"><Trash2 size={20} /></button>
                                 </div>
                             </div>
                         ))}
                     </div>
-
                     <div className="mt-10 grid grid-cols-1 md:grid-cols-12 gap-4 p-6 bg-slate-50 rounded-[2.5rem] border border-slate-100">
                         <div className="md:col-span-7">
-                            <input 
-                                type="text" placeholder="¿En qué gastarán? (Ej: Hotel)" value={newItem.name} onChange={(e) => setNewItem({...newItem, name: e.target.value})}
-                                className="w-full bg-white border-2 border-transparent focus:border-indigo-100 rounded-2xl px-6 py-4 outline-none font-bold text-sm shadow-sm"
-                            />
+                            <input type="text" placeholder="¿En qué gastarán? (Ej: Hotel)" value={newItem.name} onChange={(e) => setNewItem({...newItem, name: e.target.value})} className="w-full bg-white border-2 border-transparent focus:border-indigo-100 rounded-2xl px-6 py-4 outline-none font-bold text-sm shadow-sm" />
                         </div>
                         <div className="md:col-span-3">
-                            <input 
-                                type="number" placeholder="Monto" value={newItem.amount} onChange={(e) => setNewItem({...newItem, amount: e.target.value})}
-                                className="w-full bg-white border-2 border-transparent focus:border-indigo-100 rounded-2xl px-6 py-4 outline-none font-black text-center text-sm shadow-sm"
-                            />
+                            <input type="number" placeholder="Monto" value={newItem.amount} onChange={(e) => setNewItem({...newItem, amount: e.target.value})} className="w-full bg-white border-2 border-transparent focus:border-indigo-100 rounded-2xl px-6 py-4 outline-none font-black text-center text-sm shadow-sm" />
                         </div>
                         <div className="md:col-span-2">
-                            <button onClick={handleAddExpense} className="w-full h-full bg-indigo-600 text-white rounded-2xl font-black hover:bg-indigo-700 shadow-xl shadow-indigo-100 transition-all active:scale-95 flex items-center justify-center p-4">
-                                <Plus size={24} />
-                            </button>
+                            <button onClick={handleAddExpense} className="w-full h-full bg-indigo-600 text-white rounded-2xl font-black hover:bg-indigo-700 shadow-xl shadow-indigo-100 transition-all active:scale-95 flex items-center justify-center p-4"><Plus size={24} /></button>
                         </div>
                     </div>
                 </section>
-
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div className="bg-slate-800 p-8 rounded-[3rem] text-white shadow-2xl relative overflow-hidden">
                         <p className="text-slate-400 text-[10px] font-black uppercase tracking-widest mb-3">Pago ADN ({calculations.pctADN}%)</p>
@@ -712,7 +541,7 @@ const BudgetView = ({ user }) => {
 };
 
 // ==========================================
-// VISTA 3: ITINERARIO DE VIAJE
+// VISTA 3: ITINERARIO DE VIAJE (CON ESTADOS)
 // ==========================================
 const ItineraryView = ({ user }) => {
   const [items, setItems] = useState([]);
@@ -720,21 +549,15 @@ const ItineraryView = ({ user }) => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [editingId, setEditingId] = useState(null);
   
-  const [formData, setFormData] = useState({
-    date: '', time: '', title: '', location: '', notes: ''
-  });
+  const [formData, setFormData] = useState({ date: '', time: '', title: '', location: '', notes: '' });
 
   useEffect(() => {
     if (!user) return;
     const colRef = collection(db, 'trips', SHARED_TRIP_ID, 'travel_itinerary');
     const unsubscribe = onSnapshot(colRef, (snapshot) => {
-      const fetchedItems = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      setItems(fetchedItems);
+      setItems(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
       setLoading(false);
-    }, (error) => {
-      console.error("Error al obtener el itinerario:", error);
-      setLoading(false);
-    });
+    }, (error) => { console.error(error); setLoading(false); });
     return () => unsubscribe();
   }, [user]);
 
@@ -746,16 +569,11 @@ const ItineraryView = ({ user }) => {
       grouped[d].push(item);
     });
     const dates = Object.keys(grouped).sort();
-    dates.forEach(date => {
-      grouped[date].sort((a, b) => (a.time || '').localeCompare(b.time || ''));
-    });
+    dates.forEach(date => { grouped[date].sort((a, b) => (a.time || '').localeCompare(b.time || '')); });
     return { groups: grouped, sortedDates: dates };
   }, [items]);
 
-  const handleInputChange = (e) => {
-    const { name, value } = e.target;
-    setFormData(prev => ({ ...prev, [name]: value }));
-  };
+  const handleInputChange = (e) => { const { name, value } = e.target; setFormData(prev => ({ ...prev, [name]: value })); };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -763,38 +581,26 @@ const ItineraryView = ({ user }) => {
     setIsSubmitting(true);
     try {
       const colRef = collection(db, 'trips', SHARED_TRIP_ID, 'travel_itinerary');
-      const dataToSave = { ...formData, updatedAt: Date.now() };
-      
-      if (editingId) {
-        await updateDoc(doc(colRef, editingId), dataToSave);
-      } else {
-        await addDoc(colRef, { ...dataToSave, createdAt: Date.now() });
-      }
+      const dataToSave = { ...formData, status: 'pending', updatedAt: Date.now() }; 
+      if (editingId) await updateDoc(doc(colRef, editingId), dataToSave);
+      else await addDoc(colRef, { ...dataToSave, createdAt: Date.now() });
       setFormData({ date: '', time: '', title: '', location: '', notes: '' });
       setEditingId(null);
-    } catch (error) {
-      console.error("Error guardando actividad:", error);
-    } finally {
-      setIsSubmitting(false);
-    }
+    } catch (error) { console.error(error); } finally { setIsSubmitting(false); }
   };
 
   const handleEdit = (item) => {
     setEditingId(item.id);
-    setFormData({
-      date: item.date || '', time: item.time || '', title: item.title,
-      location: item.location || '', notes: item.notes || ''
-    });
+    setFormData({ date: item.date || '', time: item.time || '', title: item.title, location: item.location || '', notes: item.notes || '' });
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  const handleDelete = async (id) => {
-    if (!user) return;
-    try {
-      await deleteDoc(doc(db, 'trips', SHARED_TRIP_ID, 'travel_itinerary', id));
-    } catch (error) {
-      console.error("Error eliminando:", error);
-    }
+  const handleDelete = async (id) => { if (user) await deleteDoc(doc(db, 'trips', SHARED_TRIP_ID, 'travel_itinerary', id)); };
+
+  const toggleStatus = async (id, currentStatus, targetStatus) => {
+      if (!user) return;
+      const newStatus = currentStatus === targetStatus ? 'pending' : targetStatus;
+      await updateDoc(doc(db, 'trips', SHARED_TRIP_ID, 'travel_itinerary', id), { status: newStatus });
   };
 
   const formatDate = (dateStr) => {
@@ -802,9 +608,7 @@ const ItineraryView = ({ user }) => {
     try {
         const date = new Date(dateStr + 'T12:00:00');
         return date.toLocaleDateString('es-ES', { weekday: 'long', month: 'long', day: 'numeric' }).replace(/^\w/, (c) => c.toUpperCase());
-    } catch (e) {
-        return dateStr;
-    }
+    } catch (e) { return dateStr; }
   };
 
   return (
@@ -897,30 +701,33 @@ const ItineraryView = ({ user }) => {
                                 </div>
                                 <div className="space-y-4">
                                     {groups[date].map((item) => (
-                                        <div key={item.id} className="relative flex items-center justify-between md:justify-normal md:odd:flex-row-reverse group">
-                                            <div className="absolute left-5 md:left-1/2 -translate-x-1/2 flex h-8 w-8 items-center justify-center rounded-full border-4 border-white bg-emerald-200 text-emerald-600 shadow-sm transition-transform group-hover:scale-125 group-hover:bg-emerald-400 group-hover:text-white">
-                                                <Clock size={12} className="font-bold" />
+                                        <div key={item.id} className={`relative flex items-center justify-between md:justify-normal md:odd:flex-row-reverse group transition-opacity duration-300 ${item.status === 'skipped' ? 'opacity-60' : 'opacity-100'}`}>
+                                            <div className={`absolute left-5 md:left-1/2 -translate-x-1/2 flex h-8 w-8 items-center justify-center rounded-full border-4 border-white shadow-sm transition-transform group-hover:scale-125 ${item.status === 'completed' ? 'bg-emerald-500 text-white' : item.status === 'skipped' ? 'bg-amber-400 text-white' : 'bg-emerald-200 text-emerald-600'}`}>
+                                                {item.status === 'completed' ? <CheckCircle size={14}/> : item.status === 'skipped' ? <XCircle size={14}/> : <Clock size={12} className="font-bold" />}
                                             </div>
                                             
                                             <div className="w-full pl-14 md:w-5/12 md:pl-0 md:odd:pr-10 md:even:pl-10">
-                                                <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-sm hover:shadow-md transition-all group-hover:-translate-y-1 relative">
+                                                <div className={`bg-white p-5 rounded-3xl border ${item.status === 'completed' ? 'border-emerald-200 bg-emerald-50/30' : 'border-slate-100'} shadow-sm hover:shadow-md transition-all group-hover:-translate-y-1 relative`}>
                                                     <div className="flex justify-between items-start mb-2">
-                                                        <span className="text-emerald-600 font-black text-sm bg-emerald-50 px-3 py-1 rounded-lg">
+                                                        <span className={`font-black text-sm px-3 py-1 rounded-lg ${item.status === 'completed' ? 'bg-emerald-100 text-emerald-700' : 'bg-emerald-50 text-emerald-600'}`}>
                                                             {item.time || 'Todo el día'}
                                                         </span>
                                                         <div className="flex space-x-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                            <button onClick={() => toggleStatus(item.id, item.status, 'completed')} className={`p-1.5 rounded transition-colors ${item.status === 'completed' ? 'text-emerald-600 bg-emerald-100' : 'text-slate-400 hover:text-emerald-600 hover:bg-slate-50'}`}><CheckCircle size={14} /></button>
+                                                            <button onClick={() => toggleStatus(item.id, item.status, 'skipped')} className={`p-1.5 rounded transition-colors ${item.status === 'skipped' ? 'text-amber-600 bg-amber-100' : 'text-slate-400 hover:text-amber-600 hover:bg-slate-50'}`}><XCircle size={14} /></button>
+                                                            <div className="w-px h-4 bg-slate-200 my-auto mx-1"></div>
                                                             <button onClick={() => handleEdit(item)} className="p-1.5 text-slate-400 hover:text-emerald-500 bg-slate-50 rounded-lg"><Edit2 size={14} /></button>
                                                             <button onClick={() => handleDelete(item.id)} className="p-1.5 text-slate-400 hover:text-rose-500 bg-slate-50 rounded-lg"><Trash2 size={14} /></button>
                                                         </div>
                                                     </div>
-                                                    <h3 className="font-black text-slate-800 text-lg mb-1">{item.title}</h3>
+                                                    <h3 className={`font-black text-lg mb-1 ${item.status === 'skipped' ? 'text-slate-400 line-through' : 'text-slate-800'}`}>{item.title}</h3>
                                                     {item.location && (
                                                         <p className="text-slate-500 text-sm flex items-center gap-1.5 mb-2 font-medium">
                                                             <MapPin size={14} className="text-slate-400" /> {item.location}
                                                         </p>
                                                     )}
                                                     {item.notes && (
-                                                        <p className="text-slate-500 text-sm bg-slate-50 p-3 rounded-2xl italic leading-relaxed">
+                                                        <p className={`text-sm p-3 rounded-2xl italic leading-relaxed ${item.status === 'completed' ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-50 text-slate-500'}`}>
                                                             {item.notes}
                                                         </p>
                                                     )}
@@ -940,6 +747,230 @@ const ItineraryView = ({ user }) => {
 };
 
 // ==========================================
+// VISTA 4: CHECKLIST LIBRE
+// ==========================================
+const ChecklistView = ({ user }) => {
+    const [items, setItems] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [formData, setFormData] = useState({ task: '', section: '', subsection: '' });
+  
+    useEffect(() => {
+      if (!user) return;
+      const colRef = collection(db, 'trips', SHARED_TRIP_ID, 'travel_checklist');
+      const unsubscribe = onSnapshot(colRef, (snapshot) => {
+        setItems(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })).sort((a, b) => b.createdAt - a.createdAt));
+        setLoading(false);
+      });
+      return () => unsubscribe();
+    }, [user]);
+  
+    const handleSubmit = async (e) => {
+      e.preventDefault();
+      if (!formData.task || !formData.section) return;
+      await addDoc(collection(db, 'trips', SHARED_TRIP_ID, 'travel_checklist'), { 
+          task: formData.task, 
+          section: formData.section.trim(), 
+          subsection: formData.subsection.trim() || 'General', 
+          isCompleted: false, 
+          createdAt: Date.now() 
+      });
+      setFormData(prev => ({ ...prev, task: '' })); // Mantenemos la sección para escribir rápido
+    };
+  
+    const toggleCompleted = async (id, currentState) => {
+        await updateDoc(doc(db, 'trips', SHARED_TRIP_ID, 'travel_checklist', id), { isCompleted: !currentState });
+    };
+  
+    const handleDelete = async (id) => {
+        await deleteDoc(doc(db, 'trips', SHARED_TRIP_ID, 'travel_checklist', id));
+    };
+  
+    const groupedItems = useMemo(() => {
+      const grouped = {};
+      items.forEach(item => { 
+          const sec = item.section || 'Sin Categoría';
+          const subsec = item.subsection || 'General';
+          if (!grouped[sec]) grouped[sec] = {};
+          if (!grouped[sec][subsec]) grouped[sec][subsec] = [];
+          grouped[sec][subsec].push(item);
+      });
+      return grouped;
+    }, [items]);
+  
+    return (
+      <div className="max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-8">
+        <div className="lg:col-span-4 space-y-6">
+            <div className="bg-white rounded-[2.5rem] shadow-sm border border-slate-100 p-7 sticky top-6">
+                <h2 className="text-lg font-bold mb-6 flex items-center text-slate-800"><ListTodo className="w-5 h-5 mr-2 text-fuchsia-500" /> Añadir Tarea</h2>
+                <form onSubmit={handleSubmit} className="space-y-5">
+                    <div>
+                        <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">Sección Principal *</label>
+                        <input type="text" placeholder="Ej. Equipaje ADN" className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-fuchsia-500 outline-none font-bold" value={formData.section} onChange={e => setFormData({...formData, section: e.target.value})} required />
+                    </div>
+                    <div>
+                        <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">Subsección (Opcional)</label>
+                        <input type="text" placeholder="Ej. Electrónicos, Ropa..." className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-fuchsia-500 outline-none" value={formData.subsection} onChange={e => setFormData({...formData, subsection: e.target.value})} />
+                    </div>
+                    <div>
+                        <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">Tarea / Objeto *</label>
+                        <input type="text" placeholder="Ej. Pasaportes, Laptops..." className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-fuchsia-500 outline-none" value={formData.task} onChange={e => setFormData({...formData, task: e.target.value})} required />
+                    </div>
+                    <button type="submit" className="w-full bg-fuchsia-500 hover:bg-fuchsia-600 text-white font-black py-4 px-4 rounded-xl transition-all shadow-md shadow-fuchsia-200 active:scale-95">Añadir a la lista</button>
+                </form>
+            </div>
+        </div>
+        <div className="lg:col-span-8">
+            <div className="bg-white rounded-[3rem] shadow-sm border border-slate-100 p-8 min-h-[500px]">
+                <div className="flex justify-between items-center mb-10">
+                    <div>
+                        <h2 className="text-2xl font-black text-slate-800 flex items-center gap-3"><ListTodo className="text-fuchsia-500" size={28} /> Checklist de Viaje</h2>
+                        <p className="text-sm text-slate-400 font-medium">Crea tus propias listas para empacar</p>
+                    </div>
+                    <div className="bg-fuchsia-50 text-fuchsia-600 font-bold px-4 py-2 rounded-2xl text-sm border border-fuchsia-100">
+                        {items.filter(i => i.isCompleted).length} / {items.length} Listos
+                    </div>
+                </div>
+                {loading ? ( <div className="py-20 flex justify-center"><Loader2 className="w-10 h-10 animate-spin text-fuchsia-400" /></div> ) : (
+                    <div className="space-y-8">
+                        {Object.entries(groupedItems).map(([section, subSections]) => (
+                            <div key={section} className="bg-slate-50 p-6 rounded-[2rem] border border-slate-100">
+                                <h3 className="font-black text-slate-700 text-lg uppercase tracking-wider mb-4 px-2">{section}</h3>
+                                {Object.entries(subSections).map(([subsec, sectionItems]) => (
+                                    <div key={subsec} className="mb-6 last:mb-0">
+                                        {subsec !== 'General' && <h4 className="font-bold text-fuchsia-600 text-xs uppercase tracking-widest mb-3 ml-2">{subsec}</h4>}
+                                        <div className="space-y-2">
+                                            {sectionItems.map(item => (
+                                                <div key={item.id} className={`flex items-center justify-between p-4 rounded-xl border transition-all ${item.isCompleted ? 'bg-white border-fuchsia-100 opacity-60' : 'bg-white border-slate-200 shadow-sm'}`}>
+                                                    <div className="flex items-center gap-4 flex-1 cursor-pointer" onClick={() => toggleCompleted(item.id, item.isCompleted)}>
+                                                        <div className={`flex items-center justify-center w-6 h-6 rounded-full border-2 transition-colors ${item.isCompleted ? 'bg-fuchsia-500 border-fuchsia-500 text-white' : 'border-slate-300'}`}>
+                                                            {item.isCompleted && <CheckCircle size={14}/>}
+                                                        </div>
+                                                        <span className={`font-bold ${item.isCompleted ? 'text-slate-400 line-through' : 'text-slate-700'}`}>{item.task}</span>
+                                                    </div>
+                                                    <button onClick={() => handleDelete(item.id)} className="text-slate-300 hover:text-red-500 p-2"><Trash2 size={16}/></button>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        ))}
+                        {items.length === 0 && (
+                            <div className="text-center py-20 border-2 border-dashed border-slate-100 rounded-[2.5rem]">
+                                <Package className="w-16 h-16 text-slate-200 mx-auto mb-4" />
+                                <p className="text-slate-400 font-bold text-lg">Checklist vacío</p>
+                                <p className="text-slate-400 text-sm">Empieza creando una sección como "Mochila" o "Documentos".</p>
+                            </div>
+                        )}
+                    </div>
+                )}
+            </div>
+        </div>
+      </div>
+    );
+};
+
+// ==========================================
+// VISTA 5: INFO IMPRESCINDIBLE
+// ==========================================
+const InfoView = ({ user }) => {
+    const [items, setItems] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [formData, setFormData] = useState({ title: '', category: INFO_CATEGORIES[0], content: '' });
+  
+    useEffect(() => {
+      if (!user) return;
+      const colRef = collection(db, 'trips', SHARED_TRIP_ID, 'travel_info');
+      const unsubscribe = onSnapshot(colRef, (snapshot) => {
+        setItems(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })).sort((a, b) => b.createdAt - a.createdAt));
+        setLoading(false);
+      });
+      return () => unsubscribe();
+    }, [user]);
+  
+    const handleSubmit = async (e) => {
+      e.preventDefault();
+      if (!formData.title || !formData.content) return;
+      await addDoc(collection(db, 'trips', SHARED_TRIP_ID, 'travel_info'), { ...formData, createdAt: Date.now() });
+      setFormData({ title: '', category: INFO_CATEGORIES[0], content: '' });
+    };
+  
+    const handleDelete = async (id) => { await deleteDoc(doc(db, 'trips', SHARED_TRIP_ID, 'travel_info', id)); };
+  
+    const getCategoryIcon = (cat) => {
+        switch(cat) {
+            case 'Hospedaje': return <Building size={24} className="text-teal-500"/>;
+            case 'Vuelos': return <PlaneTakeoff size={24} className="text-teal-500"/>;
+            case 'Seguro': return <ShieldAlert size={24} className="text-teal-500"/>;
+            default: return <Info size={24} className="text-teal-500"/>;
+        }
+    };
+
+    return (
+      <div className="max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-8">
+        <div className="lg:col-span-4 space-y-6">
+            <div className="bg-white rounded-[2.5rem] shadow-sm border border-slate-100 p-7 sticky top-6">
+                <h2 className="text-lg font-bold mb-6 flex items-center text-slate-800"><FileText className="w-5 h-5 mr-2 text-teal-500" /> Guardar Dato</h2>
+                <form onSubmit={handleSubmit} className="space-y-5">
+                    <div>
+                        <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">Categoría</label>
+                        <select className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-teal-500 outline-none font-bold" value={formData.category} onChange={e => setFormData({...formData, category: e.target.value})}>
+                            {INFO_CATEGORIES.map(sec => <option key={sec} value={sec}>{sec}</option>)}
+                        </select>
+                    </div>
+                    <div>
+                        <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">Título Corto</label>
+                        <input type="text" placeholder="Ej. Hotel Manhattan, PNR Ida..." className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-teal-500 outline-none font-bold" value={formData.title} onChange={e => setFormData({...formData, title: e.target.value})} required />
+                    </div>
+                    <div>
+                        <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">Información Exacta</label>
+                        <textarea placeholder="Dirección, números de reserva, teléfonos..." rows="5" className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-teal-500 outline-none resize-none" value={formData.content} onChange={e => setFormData({...formData, content: e.target.value})} required></textarea>
+                    </div>
+                    <button type="submit" className="w-full bg-teal-500 hover:bg-teal-600 text-white font-black py-4 px-4 rounded-xl transition-all shadow-md shadow-teal-200 active:scale-95">Guardar Tarjeta</button>
+                </form>
+            </div>
+        </div>
+        <div className="lg:col-span-8">
+            <div className="bg-white rounded-[3rem] shadow-sm border border-slate-100 p-8 min-h-[500px]">
+                <div className="flex justify-between items-center mb-10">
+                    <div>
+                        <h2 className="text-2xl font-black text-slate-800 flex items-center gap-3"><FileText className="text-teal-500" size={28} /> Información Imprescindible</h2>
+                        <p className="text-sm text-slate-400 font-medium">Disponible incluso sin conexión a internet (Modo Offline)</p>
+                    </div>
+                </div>
+                {loading ? ( <div className="py-20 flex justify-center"><Loader2 className="w-10 h-10 animate-spin text-teal-400" /></div> ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        {items.map(item => (
+                            <div key={item.id} className="bg-slate-50 rounded-3xl border border-slate-100 p-6 relative group hover:shadow-md transition-shadow">
+                                <button onClick={() => handleDelete(item.id)} className="absolute top-4 right-4 text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"><Trash2 size={18}/></button>
+                                <div className="flex items-center gap-3 mb-4">
+                                    <div className="bg-white p-3 rounded-2xl shadow-sm">{getCategoryIcon(item.category)}</div>
+                                    <div>
+                                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{item.category}</p>
+                                        <h3 className="font-black text-slate-800 text-lg leading-tight">{item.title}</h3>
+                                    </div>
+                                </div>
+                                <div className="bg-white p-4 rounded-2xl border border-slate-100 text-sm text-slate-600 whitespace-pre-wrap font-medium">
+                                    {item.content}
+                                </div>
+                            </div>
+                        ))}
+                        {items.length === 0 && (
+                            <div className="col-span-1 md:col-span-2 text-center py-20 border-2 border-dashed border-slate-100 rounded-[2.5rem]">
+                                <FileText className="w-16 h-16 text-slate-200 mx-auto mb-4" />
+                                <p className="text-slate-400 font-bold text-lg">Sin información</p>
+                                <p className="text-slate-400 text-sm">Añade aquí direcciones, confirmaciones y teléfonos útiles.</p>
+                            </div>
+                        )}
+                    </div>
+                )}
+            </div>
+        </div>
+      </div>
+    );
+};
+
+// ==========================================
 // APLICACIÓN PRINCIPAL (Layout & Auth)
 // ==========================================
 export default function App() {
@@ -952,7 +983,6 @@ export default function App() {
     const unsubscribe = onAuthStateChanged(auth, async (u) => {
       if (u) {
         const email = u.email || '';
-
         if (!correoAutorizado(email)) {
           setAuthError(`El correo ${email} no está autorizado para usar esta app.`);
           await signOut(auth);
@@ -961,13 +991,9 @@ export default function App() {
           setAuthError('');
           setUser(u);
         }
-      } else {
-        setUser(null);
-      }
-
+      } else { setUser(null); }
       setAuthLoading(false);
     });
-
     return () => unsubscribe();
   }, []);
 
@@ -975,26 +1001,14 @@ export default function App() {
     try {
       setAuthError('');
       const result = await signInWithPopup(auth, googleProvider);
-      const email = result.user.email || '';
-
-      if (!correoAutorizado(email)) {
-        setAuthError(`El correo ${email} no está autorizado para usar esta app.`);
+      if (!correoAutorizado(result.user.email || '')) {
+        setAuthError(`El correo no está autorizado.`);
         await signOut(auth);
-        return;
       }
-    } catch (error) {
-      console.error("Error al iniciar sesión:", error);
-      setAuthError("No se pudo iniciar sesión.");
-    }
+    } catch (error) { setAuthError("No se pudo iniciar sesión."); }
   };
 
-  if (authLoading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-50">
-        <Loader2 className="w-8 h-8 animate-spin text-blue-500" />
-      </div>
-    );
-  }
+  if (authLoading) return <div className="min-h-screen flex items-center justify-center bg-slate-50"><Loader2 className="w-8 h-8 animate-spin text-blue-500" /></div>;
 
   if (!user) {
     return (
@@ -1002,37 +1016,37 @@ export default function App() {
         <div className="bg-white p-12 rounded-[3rem] shadow-2xl text-center max-w-sm w-full space-y-8">
           <Plane className="text-indigo-600 mx-auto" size={60} />
           <h1 className="font-black uppercase tracking-tighter leading-tight"><span className="block text-3xl">NY Planner</span><span className="block text-2xl mt-1">ADN & GAP 🩵💜</span></h1>
-
-          <button
-            onClick={loginWithGoogle}
-            className="w-full py-4 border-2 border-slate-200 rounded-2xl font-black flex items-center justify-center gap-3 hover:bg-slate-50 transition-colors"
-          >
-            <img
-              src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg"
-              className="w-6 h-6"
-              alt="Google"
-            />
-            Ingresar con Google
+          <button onClick={loginWithGoogle} className="w-full py-4 border-2 border-slate-200 rounded-2xl font-black flex items-center justify-center gap-3 hover:bg-slate-50 transition-colors">
+            <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" className="w-6 h-6" alt="Google" /> Ingresar con Google
           </button>
-
-          {authError && (
-            <p className="text-sm text-red-500 font-medium">{authError}</p>
-          )}
+          {authError && <p className="text-sm text-red-500 font-medium">{authError}</p>}
         </div>
       </div>
     );
   }
 
   const getHeaderColor = () => {
-    if (activeTab === 'shopping') return 'bg-blue-900';
-    if (activeTab === 'budget') return 'bg-indigo-900';
-    return 'bg-emerald-900';
+    switch(activeTab) {
+      case 'shopping': return 'bg-blue-900';
+      case 'budget': return 'bg-indigo-900';
+      case 'checklist': return 'bg-fuchsia-900';
+      case 'info': return 'bg-teal-900';
+      default: return 'bg-emerald-900'; // itinerary
+    }
   };
 
   const getIconColor = () => {
-    if (activeTab === 'shopping') return 'text-blue-300';
-    if (activeTab === 'budget') return 'text-indigo-300';
-    return 'text-emerald-300';
+    switch(activeTab) {
+      case 'shopping': return 'text-blue-300';
+      case 'budget': return 'text-indigo-300';
+      case 'checklist': return 'text-fuchsia-300';
+      case 'info': return 'text-teal-300';
+      default: return 'text-emerald-300'; // itinerary
+    }
+  };
+
+  const getTabStyle = (tabId, colorClass) => {
+    return activeTab === tabId ? `bg-slate-100 ${colorClass}` : 'text-slate-300 hover:text-white hover:bg-white/10';
   };
 
   return (
@@ -1053,25 +1067,20 @@ export default function App() {
           </div>
 
           <div className="flex space-x-1 overflow-x-auto pb-2 custom-scrollbar">
-            <button
-              onClick={() => setActiveTab('itinerary')}
-              className={`px-5 py-2.5 rounded-t-xl font-medium text-sm flex items-center transition-colors whitespace-nowrap ${activeTab === 'itinerary' ? 'bg-slate-100 text-emerald-900' : 'text-emerald-100 hover:bg-white/10'}`}
-            >
+            <button onClick={() => setActiveTab('itinerary')} className={`px-5 py-2.5 rounded-t-xl font-medium text-sm flex items-center transition-colors whitespace-nowrap ${getTabStyle('itinerary', 'text-emerald-900')}`}>
               <Calendar className="w-4 h-4 mr-2" /> Itinerario
             </button>
-
-            <button
-              onClick={() => setActiveTab('budget')}
-              className={`px-5 py-2.5 rounded-t-xl font-medium text-sm flex items-center transition-colors whitespace-nowrap ${activeTab === 'budget' ? 'bg-slate-100 text-indigo-900' : 'text-indigo-100 hover:bg-white/10'}`}
-            >
-              <Wallet className="w-4 h-4 mr-2" /> Presupuesto Compartido (ADN & GAP)
+            <button onClick={() => setActiveTab('budget')} className={`px-5 py-2.5 rounded-t-xl font-medium text-sm flex items-center transition-colors whitespace-nowrap ${getTabStyle('budget', 'text-indigo-900')}`}>
+              <Wallet className="w-4 h-4 mr-2" /> Presupuesto
             </button>
-
-            <button
-              onClick={() => setActiveTab('shopping')}
-              className={`px-5 py-2.5 rounded-t-xl font-medium text-sm flex items-center transition-colors whitespace-nowrap ${activeTab === 'shopping' ? 'bg-slate-100 text-blue-900' : 'text-blue-100 hover:bg-white/10'}`}
-            >
-              <ShoppingBag className="w-4 h-4 mr-2" /> Mis Compras (Individual)
+            <button onClick={() => setActiveTab('shopping')} className={`px-5 py-2.5 rounded-t-xl font-medium text-sm flex items-center transition-colors whitespace-nowrap ${getTabStyle('shopping', 'text-blue-900')}`}>
+              <ShoppingBag className="w-4 h-4 mr-2" /> Compras
+            </button>
+            <button onClick={() => setActiveTab('checklist')} className={`px-5 py-2.5 rounded-t-xl font-medium text-sm flex items-center transition-colors whitespace-nowrap ${getTabStyle('checklist', 'text-fuchsia-900')}`}>
+              <ListTodo className="w-4 h-4 mr-2" /> Checklist
+            </button>
+            <button onClick={() => setActiveTab('info')} className={`px-5 py-2.5 rounded-t-xl font-medium text-sm flex items-center transition-colors whitespace-nowrap ${getTabStyle('info', 'text-teal-900')}`}>
+              <FileText className="w-4 h-4 mr-2" /> Info Rápida
             </button>
           </div>
         </div>
@@ -1081,6 +1090,8 @@ export default function App() {
         {activeTab === 'itinerary' && <ItineraryView user={user} />}
         {activeTab === 'shopping' && <ShoppingView user={user} />}
         {activeTab === 'budget' && <BudgetView user={user} />}
+        {activeTab === 'checklist' && <ChecklistView user={user} />}
+        {activeTab === 'info' && <InfoView user={user} />}
       </main>
     </div>
   );
